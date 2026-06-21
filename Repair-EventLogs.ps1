@@ -1,0 +1,8 @@
+[CmdletBinding(SupportsShouldProcess=$true)]
+param([switch]$RestartEventLog,[switch]$ClearSelectedLog,[string]$LogName,[switch]$RepairWmi,[string]$OutputPath="$env:USERPROFILE\Desktop\EventLogRepair")
+$ErrorActionPreference='Stop';New-Item -ItemType Directory -Path $OutputPath -Force|Out-Null;$Log=Join-Path $OutputPath ("repair-{0:yyyyMMdd-HHmmss}.log"-f(Get-Date));function L($m){"$(Get-Date -Format s) $m"|Tee-Object -FilePath $Log -Append};$p=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent();if(-not$p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw'Run as Administrator.'};if(-not($RestartEventLog-or$ClearSelectedLog-or$RepairWmi)){throw'Choose at least one repair action.'}
+wevtutil el|Set-Content (Join-Path $OutputPath 'logs-before.txt')
+if($ClearSelectedLog){if([string]::IsNullOrWhiteSpace($LogName)){throw'-LogName is required.'};wevtutil gl $LogName *> (Join-Path $OutputPath 'selected-log-before.txt');if($PSCmdlet.ShouldProcess($LogName,'Clear event log')){wevtutil cl $LogName;L"Cleared $LogName"}}
+if($RestartEventLog){if($PSCmdlet.ShouldProcess('Windows Event Log service','Restart dependent services safely')){Restart-Service EventLog -Force;L'Event Log service restart requested.'}}
+if($RepairWmi){if($PSCmdlet.ShouldProcess('WMI repository','Verify and salvage')){winmgmt /verifyrepository|Tee-Object -FilePath $Log -Append;if($LASTEXITCODE-ne0){winmgmt /salvagerepository|Tee-Object -FilePath $Log -Append};L'WMI verification completed.'}}
+Get-WinEvent -LogName System -MaxEvents 100 -ErrorAction SilentlyContinue|Export-Clixml (Join-Path $OutputPath 'system-after.xml');L'Repair workflow finished.'
